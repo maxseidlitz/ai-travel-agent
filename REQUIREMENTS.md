@@ -140,7 +140,7 @@ DATABASE_URL="postgresql://username:password@localhost:5432/ai_travel_agent"
 
 # Ollama Konfiguration
 OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_MODEL="llama3.1:8b"
+OLLAMA_MODEL="qwen2.5:7b"
 
 # NextAuth (falls Authentifizierung benötigt)
 NEXTAUTH_URL="http://localhost:3000"
@@ -165,11 +165,11 @@ npx prisma db seed
 ### 5. Ollama Modell herunterladen
 ```bash
 # Standard-Modell herunterladen (kann mehrere Minuten dauern)
-ollama pull llama3.1:8b
+ollama pull qwen2.5:7b
 
-# Alternative kleinere Modelle (falls Speicher knapp ist)
-ollama pull llama3.1:1b
-ollama pull llama3.1:3b
+# Alternative Modelle (je nach Ressourcen)
+ollama pull mistral:7b
+ollama pull qwen2.5:3b
 ```
 
 ---
@@ -259,7 +259,7 @@ psql -h localhost -U postgres -d ai_travel_agent
 ollama list
 
 # Modell neu herunterladen
-ollama pull llama3.1:8b
+ollama pull qwen2.5:7b
 ```
 
 #### 4. Speicherplatz knapp
@@ -314,9 +314,9 @@ export OLLAMA_HOST=0.0.0.0
 export OLLAMA_ORIGINS=*
 
 # Kleinere Modelle für bessere Performance
-ollama pull llama3.1:1b  # ~1GB
-ollama pull llama3.1:3b  # ~2GB
-ollama pull llama3.1:8b  # ~4GB
+ollama pull qwen2.5:0.5b  # ~1GB
+ollama pull qwen2.5:3b    # ~2GB
+ollama pull qwen2.5:7b    # ~4GB
 ```
 
 ### Next.js Optimierung

@@ -2,7 +2,7 @@ import { ChatRequest, AIResponse, UserPreferences } from '@/types'
 
 // Ollama API Configuration
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'mistral:7b'
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b'
 
 interface OllamaRequest {
   model: string

@@ -111,7 +111,7 @@ if [ ! -f ".env.local" ]; then
 # Minimal-Konfiguration für lokale Entwicklung
 DATABASE_URL="postgresql://postgres:password@localhost:5432/ai_travel_agent"
 OLLAMA_BASE_URL="http://localhost:11434"
-OLLAMA_MODEL="llama3.1:8b"
+OLLAMA_MODEL="qwen2.5:7b"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="$(openssl rand -base64 32)"
 EOF
@@ -149,16 +149,16 @@ echo -e "${YELLOW}🤖 Konfiguriere Ollama...${NC}"
 
 if command -v ollama &> /dev/null; then
     echo -e "${BLUE}🔄 Prüfe verfügbare Modelle...${NC}"
-    if ollama list | grep -q "llama3.1:8b"; then
+    if ollama list | grep -q "qwen2.5:7b"; then
         echo -e "${GREEN}✅ Standard-Modell ist verfügbar${NC}"
     else
         echo -e "${YELLOW}📥 Lade Standard-Modell herunter...${NC}"
         echo -e "${YELLOW}Dies kann mehrere Minuten dauern...${NC}"
-        if run_command "ollama pull llama3.1:8b"; then
+        if run_command "ollama pull qwen2.5:7b"; then
             echo -e "${GREEN}✅ Modell erfolgreich heruntergeladen${NC}"
         else
             echo -e "${RED}❌ Fehler beim Herunterladen des Modells${NC}"
-            echo -e "${YELLOW}Sie können das Modell später manuell herunterladen: ollama pull llama3.1:8b${NC}"
+            echo -e "${YELLOW}Sie können das Modell später manuell herunterladen: ollama pull qwen2.5:7b${NC}"
         fi
     fi
 else

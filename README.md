@@ -54,7 +54,7 @@ Ein intelligenter Reiseberater, der mit lokaler KI (Ollama) arbeitet und Ihnen b
 
 5. **Standard-Modell herunterladen**
    ```bash
-   ollama pull mistral:7b
+   ollama pull qwen2.5:7b
    ```
 
 6. **Entwicklungsserver starten**
@@ -120,8 +120,8 @@ AI-Travel-Agent/
 
 Das Projekt verwendet Ollama für lokale KI-Verarbeitung:
 
-- **Standard-Modell**: `mistral:7b` (schnell und effizient)
-- **Alternative Modelle**: `phi3:mini`, `qwen2.5:0.5b`
+- **Standard-Modell**: `qwen2.5:7b` (starkes mehrsprachiges Verständnis)
+- **Alternative Modelle**: `mistral:7b`, `llama3.1:8b`
 - **API-Endpunkt**: `http://localhost:11434`
 
 ### Markdown-Unterstützung
@@ -164,7 +164,7 @@ Für einfache Entwicklung wird SQLite verwendet.
 ```env
 # Ollama
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=mistral:7b
+OLLAMA_MODEL=qwen2.5:7b
 
 # Datenbank
 DATABASE_URL="file:./dev.db"
