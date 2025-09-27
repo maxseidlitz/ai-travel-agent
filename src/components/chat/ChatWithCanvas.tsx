@@ -2,8 +2,9 @@
 
 import React, { useState } from 'react'
 import ChatInterface from './ChatInterface'
-import TravelCanvas from '../planning/TravelCanvas'
+import TravelCanvas, { type CanvasNote } from '../planning/TravelCanvas'
 import { Message, MessageRole } from '@/types'
+import type { TravelNote } from '@/lib/ai/ollama'
 
 interface ChatWithCanvasProps {
   className?: string
@@ -16,29 +17,31 @@ type CanvasMessage = {
   timestamp: Date
 }
 
+type StoredNote = CanvasNote
+
 export default function ChatWithCanvas({ className }: ChatWithCanvasProps) {
   const [messages, setMessages] = useState<Message[]>([])
-  const [autoNotes, setAutoNotes] = useState<any[]>([])
+  const [autoNotes, setAutoNotes] = useState<StoredNote[]>([])
   const [showNotes, setShowNotes] = useState(false)
 
   const handleNewMessage = (newMessages: Message[]) => {
     setMessages(newMessages)
   }
 
-  const handleNotesExtracted = (extractedNotes: any[]) => {
+  const handleNotesExtracted = (extractedNotes: TravelNote[]) => {
     console.log('Notizen von AI extrahiert:', extractedNotes)
-    
+
     // Konvertiere die extrahierten Notizen in das richtige Format für TravelCanvas
-    const formattedNotes = extractedNotes.map(note => ({
+    const formattedNotes: StoredNote[] = extractedNotes.map(note => ({
       ...note,
       createdAt: new Date(),
       updatedAt: new Date()
     }))
-    
+
     setAutoNotes(prev => [...prev, ...formattedNotes])
   }
 
-  const handleSaveNotes = (notes: any[]) => {
+  const handleSaveNotes = (notes: StoredNote[]) => {
     // Hier können Sie die Notizen speichern (z.B. in localStorage oder Datenbank)
     console.log('Notizen gespeichert:', notes)
     localStorage.setItem('travelNotes', JSON.stringify(notes))
@@ -77,9 +80,9 @@ export default function ChatWithCanvas({ className }: ChatWithCanvasProps) {
         </div>
         
         <div className={`${showNotes ? 'hidden' : 'block'} lg:block flex-1 min-h-0`}>
-          <ChatInterface 
+          <ChatInterface
             className="h-full"
-            onTripCreated={handleNewMessage}
+            onMessagesChange={handleNewMessage}
             onNotesExtracted={handleNotesExtracted}
           />
         </div>

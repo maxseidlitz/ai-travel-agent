@@ -29,6 +29,111 @@ interface OllamaResponse {
   eval_duration?: number
 }
 
+interface OllamaTagsResponse {
+  models?: Array<{ name: string }>
+}
+
+type OllamaOptions = NonNullable<OllamaRequest['options']>
+type OllamaOptionsInput = Partial<OllamaOptions>
+
+const TRAVEL_NOTE_TYPES = [
+  'destination',
+  'budget',
+  'dates',
+  'activities',
+  'accommodation',
+  'transport',
+  'general',
+] as const
+
+const TRAVEL_NOTE_PRIORITIES = ['high', 'medium', 'low'] as const
+
+export type TravelNoteType = (typeof TRAVEL_NOTE_TYPES)[number]
+export type TravelNotePriority = (typeof TRAVEL_NOTE_PRIORITIES)[number]
+
+export interface TravelNote {
+  id: string
+  type: TravelNoteType
+  title: string
+  content: string
+  priority: TravelNotePriority
+}
+
+export interface TravelNotesResult {
+  notes: TravelNote[]
+  shouldCreateNotes: boolean
+}
+
+interface TravelNotePayload {
+  id?: string
+  type?: TravelNoteType
+  title?: string
+  content?: string
+  priority?: TravelNotePriority
+}
+
+interface ParsedNotes {
+  notes?: TravelNotePayload[]
+  shouldCreateNotes?: boolean
+}
+
+const isTravelNoteType = (value: unknown): value is TravelNoteType =>
+  typeof value === 'string' && TRAVEL_NOTE_TYPES.includes(value as TravelNoteType)
+
+const isTravelNotePriority = (value: unknown): value is TravelNotePriority =>
+  typeof value === 'string' && TRAVEL_NOTE_PRIORITIES.includes(value as TravelNotePriority)
+
+const isTravelNotePayload = (value: unknown): value is TravelNotePayload => {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+
+  if ('type' in candidate && typeof candidate.type !== 'string') {
+    return false
+  }
+
+  if ('title' in candidate && typeof candidate.title !== 'string') {
+    return false
+  }
+
+  if ('content' in candidate && typeof candidate.content !== 'string') {
+    return false
+  }
+
+  if ('priority' in candidate && typeof candidate.priority !== 'string') {
+    return false
+  }
+
+  return true
+}
+
+const isParsedNotes = (value: unknown): value is ParsedNotes => {
+  if (typeof value !== 'object' || value === null) {
+    return false
+  }
+
+  const candidate = value as Record<string, unknown>
+
+  if ('notes' in candidate) {
+    const { notes } = candidate
+
+    if (!Array.isArray(notes) || !notes.every(isTravelNotePayload)) {
+      return false
+    }
+  }
+
+  if ('shouldCreateNotes' in candidate && typeof candidate.shouldCreateNotes !== 'boolean') {
+    return false
+  }
+
+  return true
+}
+
+const createRandomId = (prefix: string) =>
+  `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`
+
 // System prompt für Reiseplanung
 const SYSTEM_PROMPT = `Du bist ein erfahrener Reiseberater, der Nutzern dabei hilft, ihren Urlaub individuell und optimal zu planen. Deine Empfehlungen sind stets freundlich, strukturiert, detailliert und auf die persönlichen Wünsche und Rahmenbedingungen der Nutzer abgestimmt.
 
@@ -77,7 +182,7 @@ class OllamaClient {
     this.model = model
   }
 
-  async generateText(prompt: string, options: any = {}): Promise<string> {
+  async generateText(prompt: string, options: OllamaOptionsInput = {}): Promise<string> {
     try {
       const request: OllamaRequest = {
         model: this.model,
@@ -105,7 +210,7 @@ class OllamaClient {
         throw new Error(`Ollama API error: ${response.status} ${response.statusText}`)
       }
 
-      const data: OllamaResponse = await response.json()
+      const data = (await response.json()) as OllamaResponse
       return data.response.trim()
     } catch (error) {
       console.error('Ollama API error:', error)
@@ -120,8 +225,8 @@ class OllamaClient {
         throw new Error(`Failed to fetch models: ${response.status}`)
       }
       
-      const data = await response.json()
-      return data.models?.map((model: any) => model.name) || []
+      const data = (await response.json()) as OllamaTagsResponse
+      return data.models?.map(model => model.name) ?? []
     } catch (error) {
       console.error('Error fetching models:', error)
       return []
@@ -142,8 +247,8 @@ export async function generateTravelResponse(
   request: ChatRequest
 ): Promise<AIResponse> {
   try {
-    const { message, context } = request
-    
+    const { message } = request
+
     // Check if Ollama is available
     const isAvailable = await ollamaClient.isModelAvailable(DEFAULT_MODEL)
     
@@ -382,6 +487,7 @@ export async function checkOllamaStatus(): Promise<{
       defaultModel: DEFAULT_MODEL
     }
   } catch (error) {
+    console.error('Error checking Ollama status:', error)
     return {
       isRunning: false,
       models: [],
@@ -411,16 +517,7 @@ export async function pullModel(modelName: string): Promise<boolean> {
 export async function extractTravelNotes(
   userMessage: string,
   chatHistory: string = ""
-): Promise<{
-  notes: Array<{
-    id: string
-    type: 'destination' | 'budget' | 'dates' | 'activities' | 'accommodation' | 'transport' | 'general'
-    title: string
-    content: string
-    priority: 'high' | 'medium' | 'low'
-  }>
-  shouldCreateNotes: boolean
-}> {
+): Promise<TravelNotesResult> {
   try {
     const prompt = `Analysiere die folgende User-Nachricht und erstelle strukturierte Reise-Notizen.
 
@@ -449,92 +546,90 @@ WICHTIG: Antworte NUR mit gültigem JSON, ohne Markdown-Formatierung oder zusät
       top_p: 0.9
     })
 
-    // Verbesserte JSON-Parsing-Logik
-    let parsed: any = null
-    let lastError: any = null
+    let parsed: ParsedNotes | null = null
+    let lastError: Error | null = null
 
-    // 1. Direkter Parse
+    const tryAssignParsed = (value: unknown) => {
+      if (isParsedNotes(value)) {
+        parsed = value
+      }
+    }
+
     try {
       const cleaned = response.trim()
       if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
-        parsed = JSON.parse(cleaned)
+        tryAssignParsed(JSON.parse(cleaned))
       }
-    } catch (e) { 
-      lastError = e 
-      console.log('Direkter Parse fehlgeschlagen:', (e as Error).message)
+    } catch (e) {
+      const error = e instanceof Error ? e : new Error(String(e))
+      lastError = error
+      console.log('Direkter Parse fehlgeschlagen:', error.message)
     }
 
-    // 2. Regex-Extraktion mit verbesserter Logik
     if (!parsed) {
       try {
         const jsonMatch = response.match(/\{[\s\S]*\}/)
         if (jsonMatch) {
           const jsonString = jsonMatch[0]
-          // Entferne mögliche Markdown-Formatierung
           const cleanedJson = jsonString
             .replace(/```json/g, '')
             .replace(/```/g, '')
             .replace(/^\s*```\s*/, '')
             .replace(/\s*```\s*$/, '')
             .trim()
-          
-          parsed = JSON.parse(cleanedJson)
+
+          tryAssignParsed(JSON.parse(cleanedJson))
         }
-      } catch (e) { 
-        lastError = e 
-        console.log('Regex-Extraktion fehlgeschlagen:', (e as Error).message)
+      } catch (e) {
+        const error = e instanceof Error ? e : new Error(String(e))
+        lastError = error
+        console.log('Regex-Extraktion fehlgeschlagen:', error.message)
       }
     }
 
-    // 3. Erweiterte Reparatur
     if (!parsed) {
       try {
-        let repaired = response
-          // Entferne Markdown-Formatierung
+        const repaired = response
           .replace(/```json/g, '')
           .replace(/```/g, '')
           .replace(/^\s*```\s*/, '')
           .replace(/\s*```\s*$/, '')
-          // Repariere JSON-Syntax
           .replace(/'/g, '"')
           .replace(/,\s*([}\]])/g, '$1')
           .replace(/,\s*,/g, ',')
           .replace(/\[\s*\n/g, '[')
           .replace(/\n\s*\]/g, ']')
-          .replace(/\,\s*\]/g, ']')
-          .replace(/\,\s*\}/g, '}')
-          // Entferne ungültige Zeichen
+          .replace(/,\s*\]/g, ']')
+          .replace(/,\s*\}/g, '}')
           .replace(/[^\x20-\x7E]/g, '')
-        
+
         const match = repaired.match(/\{[\s\S]*\}/)
         if (match) {
-          parsed = JSON.parse(match[0])
+          tryAssignParsed(JSON.parse(match[0]))
         }
-      } catch (e) { 
-        lastError = e 
-        console.log('Reparatur fehlgeschlagen:', (e as Error).message)
+      } catch (e) {
+        const error = e instanceof Error ? e : new Error(String(e))
+        lastError = error
+        console.log('Reparatur fehlgeschlagen:', error.message)
       }
     }
 
-    // 4. Fallback: Manuelle Extraktion
     if (!parsed) {
       try {
-        const notes = []
+        const notes: TravelNotePayload[] = []
         let shouldCreateNotes = false
 
-        // Extrahiere Informationen aus der User-Nachricht
         const lowerMessage = userMessage.toLowerCase()
-        
-        // Reiseziele
+
         const destinations = ['paris', 'london', 'rome', 'barcelona', 'amsterdam', 'berlin', 'vienna', 'prague', 'budapest', 'krakow', 'warsaw', 'stockholm', 'oslo', 'copenhagen', 'helsinki', 'athens', 'thessaloniki', 'crete', 'rhodes', 'santorini', 'mykonos', 'madrid', 'seville', 'granada', 'valencia', 'bilbao', 'ibiza', 'mallorca', 'milan', 'florence', 'venice', 'naples', 'sicily', 'tuscany', 'zurich', 'geneva', 'bern', 'lucerne', 'interlaken', 'zermatt', 'salzburg', 'innsbruck', 'hallstatt', 'vienna', 'graz', 'munich', 'hamburg', 'cologne', 'frankfurt', 'dresden', 'leipzig', 'brussels', 'antwerp', 'bruges', 'ghent', 'dublin', 'cork', 'galway', 'killarney', 'edinburgh', 'glasgow', 'inverness', 'aberdeen', 'tokyo', 'kyoto', 'osaka', 'hiroshima', 'nara', 'kanazawa', 'seoul', 'busan', 'jeju', 'bangkok', 'chiang mai', 'phuket', 'koh samui', 'singapore', 'kuala lumpur', 'penang', 'bali', 'jakarta', 'yogyakarta', 'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', 'auckland', 'wellington', 'christchurch', 'vancouver', 'toronto', 'montreal', 'quebec', 'calgary', 'new york', 'los angeles', 'san francisco', 'chicago', 'miami', 'las vegas', 'mexico city', 'cancun', 'puerto vallarta', 'rio de janeiro', 'sao paulo', 'salvador', 'recife', 'buenos aires', 'santiago', 'lima', 'cusco', 'machu picchu', 'cairo', 'alexandria', 'luxor', 'aswan', 'marrakech', 'fes', 'casablanca', 'tangier', 'istanbul', 'ankara', 'izmir', 'antalya', 'cappadocia', 'dubai', 'abu dhabi', 'doha', 'muscat', 'mumbai', 'delhi', 'jaipur', 'agra', 'varanasi', 'goa', 'kathmandu', 'pokhara', 'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'xian', 'chengdu']
-        
+
         for (const dest of destinations) {
           if (lowerMessage.includes(dest)) {
+            const capitalized = dest.charAt(0).toUpperCase() + dest.slice(1)
             notes.push({
-              id: `dest-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               type: 'destination',
-              title: `Reiseziel: ${dest.charAt(0).toUpperCase() + dest.slice(1)}`,
-              content: `Geplantes Reiseziel: ${dest.charAt(0).toUpperCase() + dest.slice(1)}`,
+              title: `Reiseziel: ${capitalized}`,
+              content: `Geplantes Reiseziel: ${capitalized}`,
               priority: 'high'
             })
             shouldCreateNotes = true
@@ -542,42 +637,42 @@ WICHTIG: Antworte NUR mit gültigem JSON, ohne Markdown-Formatierung oder zusät
           }
         }
 
-        // Budget
         const budgetMatch = lowerMessage.match(/(\d+)\s*€|\d+\s*euro/i)
         if (budgetMatch) {
+          const [value] = budgetMatch
           notes.push({
-            id: `budget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type: 'budget',
-            title: `Budget: ${budgetMatch[0]}`,
-            content: `Geplantes Budget: ${budgetMatch[0]}`,
+            title: `Budget: ${value}`,
+            content: `Geplantes Budget: ${value}`,
             priority: 'high'
           })
           shouldCreateNotes = true
         }
 
-        // Zeiträume
         const timeMatches = lowerMessage.match(/(\d+)\s*(tage|wochen|monate)/gi)
         if (timeMatches) {
+          const [duration] = timeMatches
           notes.push({
-            id: `time-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
             type: 'dates',
-            title: `Reisedauer: ${timeMatches[0]}`,
-            content: `Geplante Reisedauer: ${timeMatches[0]}`,
+            title: `Reisedauer: ${duration}`,
+            content: `Geplante Reisedauer: ${duration}`,
             priority: 'medium'
           })
           shouldCreateNotes = true
         }
 
         parsed = { notes, shouldCreateNotes }
-      } catch (e) { 
-        lastError = e 
-        console.log('Manuelle Extraktion fehlgeschlagen:', (e as Error).message)
+      } catch (e) {
+        const error = e instanceof Error ? e : new Error(String(e))
+        lastError = error
+        console.log('Manuelle Extraktion fehlgeschlagen:', error.message)
       }
     }
 
-    // 5. Finale Fehlerbehandlung
     if (!parsed) {
-      console.error('JSON-Parsing komplett fehlgeschlagen:', lastError)
+      if (lastError) {
+        console.error('JSON-Parsing komplett fehlgeschlagen:', lastError)
+      }
       console.error('Response war:', response)
       return {
         notes: [],
@@ -585,18 +680,17 @@ WICHTIG: Antworte NUR mit gültigem JSON, ohne Markdown-Formatierung oder zusät
       }
     }
 
-    // Validiere und formatiere die Notizen
-    const notes = (parsed.notes || []).map((note: any) => ({
-      id: `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      type: note.type || 'general',
-      title: note.title || 'Neue Notiz',
-      content: note.content || '',
-      priority: note.priority || 'medium'
+    const normalizedNotes: TravelNote[] = (parsed.notes ?? []).map(note => ({
+      id: createRandomId('ai'),
+      type: isTravelNoteType(note.type) ? note.type : 'general',
+      title: note.title ?? 'Neue Notiz',
+      content: note.content ?? '',
+      priority: isTravelNotePriority(note.priority) ? note.priority : 'medium'
     }))
 
     return {
-      notes,
-      shouldCreateNotes: parsed.shouldCreateNotes || notes.length > 0
+      notes: normalizedNotes,
+      shouldCreateNotes: parsed.shouldCreateNotes ?? normalizedNotes.length > 0
     }
   } catch (error) {
     console.error('Error extracting travel notes:', error)

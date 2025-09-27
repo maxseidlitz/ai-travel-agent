@@ -98,7 +98,7 @@ export function pick<T, K extends keyof T>(obj: T, keys: K[]): Pick<T, K> {
 }
 
 export function omit<T, K extends keyof T>(obj: T, keys: K[]): Omit<T, K> {
-  const result = { ...obj } as any
+  const result: Partial<T> = { ...obj }
   keys.forEach(key => {
     delete result[key]
   })
@@ -213,23 +213,25 @@ export function randomInt(min: number, max: number): number {
 }
 
 // Debounce utility
-export function debounce<T extends (...args: any[]) => any>(
+export function debounce<T extends (...args: unknown[]) => void>(
   func: T,
   wait: number
 ): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout
+  let timeout: ReturnType<typeof setTimeout> | undefined
   return (...args: Parameters<T>) => {
-    clearTimeout(timeout)
+    if (timeout) {
+      clearTimeout(timeout)
+    }
     timeout = setTimeout(() => func(...args), wait)
   }
 }
 
 // Throttle utility
-export function throttle<T extends (...args: any[]) => any>(
+export function throttle<T extends (...args: unknown[]) => void>(
   func: T,
   limit: number
 ): (...args: Parameters<T>) => void {
-  let inThrottle: boolean
+  let inThrottle = false
   return (...args: Parameters<T>) => {
     if (!inThrottle) {
       func(...args)
