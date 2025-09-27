@@ -1,4 +1,4 @@
-import { ChatRequest, AIResponse, UserPreferences } from '@/types'
+import { ChatRequest, AIResponse, UserPreferences, TravelNoteDraft, TravelNoteType, TravelNotePriority } from '@/types'
 
 // Ollama API Configuration
 const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434'
@@ -8,13 +8,15 @@ interface OllamaRequest {
   model: string
   prompt: string
   stream?: boolean
-  options?: {
-    temperature?: number
-    top_p?: number
-    top_k?: number
-    num_predict?: number
-    repeat_penalty?: number
-  }
+  options?: OllamaGenerateOptions
+}
+
+interface OllamaGenerateOptions {
+  temperature?: number
+  top_p?: number
+  top_k?: number
+  num_predict?: number
+  repeat_penalty?: number
 }
 
 interface OllamaResponse {
@@ -77,7 +79,7 @@ class OllamaClient {
     this.model = model
   }
 
-  async generateText(prompt: string, options: any = {}): Promise<string> {
+  async generateText(prompt: string, options: OllamaGenerateOptions = {}): Promise<string> {
     try {
       const request: OllamaRequest = {
         model: this.model,
@@ -120,8 +122,8 @@ class OllamaClient {
         throw new Error(`Failed to fetch models: ${response.status}`)
       }
       
-      const data = await response.json()
-      return data.models?.map((model: any) => model.name) || []
+      const data: OllamaTagsResponse = await response.json()
+      return data.models?.map(model => model.name) || []
     } catch (error) {
       console.error('Error fetching models:', error)
       return []
@@ -407,20 +409,201 @@ export async function pullModel(modelName: string): Promise<boolean> {
   }
 }
 
+const NOTE_TYPES: readonly TravelNoteType[] = [
+  'destination',
+  'budget',
+  'dates',
+  'activities',
+  'accommodation',
+  'transport',
+  'general'
+]
+
+const NOTE_PRIORITIES: readonly TravelNotePriority[] = ['high', 'medium', 'low']
+
+const KNOWN_DESTINATIONS = [
+  'paris', 'london', 'rome', 'barcelona', 'amsterdam', 'berlin', 'vienna', 'prague',
+  'budapest', 'krakow', 'warsaw', 'stockholm', 'oslo', 'copenhagen', 'helsinki',
+  'athens', 'thessaloniki', 'crete', 'rhodes', 'santorini', 'mykonos',
+  'madrid', 'seville', 'granada', 'valencia', 'bilbao', 'ibiza', 'mallorca',
+  'milan', 'florence', 'venice', 'naples', 'sicily', 'tuscany',
+  'zurich', 'geneva', 'bern', 'lucerne', 'interlaken', 'zermatt',
+  'salzburg', 'innsbruck', 'hallstatt', 'vienna', 'graz',
+  'munich', 'hamburg', 'cologne', 'frankfurt', 'dresden', 'leipzig',
+  'brussels', 'antwerp', 'bruges', 'ghent',
+  'dublin', 'cork', 'galway', 'killarney',
+  'edinburgh', 'glasgow', 'inverness', 'aberdeen',
+  'tokyo', 'kyoto', 'osaka', 'hiroshima', 'nara', 'kanazawa',
+  'seoul', 'busan', 'jeju',
+  'bangkok', 'chiang mai', 'phuket', 'koh samui',
+  'singapore', 'kuala lumpur', 'penang',
+  'bali', 'jakarta', 'yogyakarta',
+  'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide',
+  'auckland', 'wellington', 'christchurch',
+  'vancouver', 'toronto', 'montreal', 'quebec', 'calgary',
+  'new york', 'los angeles', 'san francisco', 'chicago', 'miami', 'las vegas',
+  'mexico city', 'cancun', 'puerto vallarta',
+  'rio de janeiro', 'sao paulo', 'salvador', 'recife',
+  'buenos aires', 'santiago', 'lima', 'cusco', 'machu picchu',
+  'cairo', 'alexandria', 'luxor', 'aswan',
+  'marrakech', 'fes', 'casablanca', 'tangier',
+  'istanbul', 'ankara', 'izmir', 'antalya', 'cappadocia',
+  'dubai', 'abu dhabi', 'doha', 'muscat',
+  'mumbai', 'delhi', 'jaipur', 'agra', 'varanasi', 'goa',
+  'kathmandu', 'pokhara',
+  'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'xian', 'chengdu'
+]
+
+interface TravelNoteExtractionPayload {
+  notes?: unknown
+  shouldCreateNotes?: unknown
+}
+
+const isTravelNoteType = (value: unknown): value is TravelNoteType =>
+  typeof value === 'string' && (NOTE_TYPES as readonly string[]).includes(value)
+
+const isTravelNotePriority = (value: unknown): value is TravelNotePriority =>
+  typeof value === 'string' && (NOTE_PRIORITIES as readonly string[]).includes(value)
+
+const sanitizeCodeFence = (value: string) =>
+  value.replace(/```json/gi, '').replace(/```/g, '').trim()
+
+const cleanupJsonArtifacts = (value: string) =>
+  sanitizeCodeFence(value)
+    .replace(/'/g, '"')
+    .replace(/,\s*([}\]])/g, '$1')
+    .replace(/,\s*,/g, ',')
+    .replace(/[^ -~]/g, '')
+
+const parseJsonPayload = (candidate: string): TravelNoteExtractionPayload | null => {
+  try {
+    return JSON.parse(candidate) as TravelNoteExtractionPayload
+  } catch {
+    return null
+  }
+}
+
+const createDraft = (note: Partial<TravelNoteDraft>): TravelNoteDraft => {
+  const type = isTravelNoteType(note.type) ? note.type : 'general'
+  const priority = isTravelNotePriority(note.priority) ? note.priority : 'medium'
+  const title = typeof note.title === 'string' && note.title.trim().length > 0 ? note.title : 'Neue Notiz'
+  const content = typeof note.content === 'string' ? note.content : ''
+  const id = typeof note.id === 'string' && note.id.trim().length > 0
+    ? note.id
+    : `ai-${type}-${Math.random().toString(36).slice(2, 10)}`
+
+  return {
+    id,
+    type,
+    title,
+    content,
+    priority
+  }
+}
+
+const normalizePayload = (payload: TravelNoteExtractionPayload | null): TravelNoteExtractionResult | null => {
+  if (!payload) {
+    return null
+  }
+
+  const rawNotes = Array.isArray(payload.notes) ? payload.notes : []
+  const notes = rawNotes
+    .filter((note): note is Record<string, unknown> => typeof note === 'object' && note !== null)
+    .map(note => createDraft(note as Partial<TravelNoteDraft>))
+
+  const shouldCreateNotes = typeof payload.shouldCreateNotes === 'boolean'
+    ? payload.shouldCreateNotes
+    : notes.length > 0
+
+  return { notes, shouldCreateNotes }
+}
+
+const parseExtractionResponse = (response: string): TravelNoteExtractionResult | null => {
+  const trimmed = sanitizeCodeFence(response.trim())
+  const candidates = new Set<string>()
+
+  if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+    candidates.add(trimmed)
+  }
+
+  const match = response.match(/\{[\s\S]*\}/)
+  if (match) {
+    candidates.add(sanitizeCodeFence(match[0]))
+  }
+
+  const repaired = cleanupJsonArtifacts(response)
+  const repairedMatch = repaired.match(/\{[\s\S]*\}/)
+  if (repairedMatch) {
+    candidates.add(repairedMatch[0])
+  }
+
+  for (const candidate of candidates) {
+    const normalized = normalizePayload(parseJsonPayload(candidate))
+    if (normalized) {
+      return normalized
+    }
+  }
+
+  return null
+}
+
+const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1)
+
+const extractNotesManually = (userMessage: string): TravelNoteExtractionResult | null => {
+  const lowerMessage = userMessage.toLowerCase()
+  const notes: TravelNoteDraft[] = []
+
+  const destination = KNOWN_DESTINATIONS.find(dest => lowerMessage.includes(dest))
+  if (destination) {
+    const capitalized = capitalize(destination)
+    notes.push(createDraft({
+      id: `dest-${destination}`,
+      type: 'destination',
+      title: `Reiseziel: ${capitalized}`,
+      content: `Geplantes Reiseziel: ${capitalized}`,
+      priority: 'high'
+    }))
+  }
+
+  const budgetMatch = lowerMessage.match(/(\d+)\s*€|\d+\s*euro/i)
+  if (budgetMatch) {
+    const amount = budgetMatch[0]
+    notes.push(createDraft({
+      id: `budget-${amount.toLowerCase()}`,
+      type: 'budget',
+      title: `Budget: ${amount}`,
+      content: `Geplantes Budget: ${amount}`,
+      priority: 'high'
+    }))
+  }
+
+  const timeMatch = lowerMessage.match(/(\d+)\s*(tage|wochen|monate)/i)
+  if (timeMatch) {
+    const duration = timeMatch[0]
+    notes.push(createDraft({
+      id: `time-${duration.toLowerCase()}`,
+      type: 'dates',
+      title: `Reisedauer: ${duration}`,
+      content: `Geplante Reisedauer: ${duration}`,
+      priority: 'medium'
+    }))
+  }
+
+  if (notes.length === 0) {
+    return null
+  }
+
+  return {
+    notes,
+    shouldCreateNotes: true
+  }
+}
+
 // Neue Funktion für automatische Notizen-Extraktion
 export async function extractTravelNotes(
   userMessage: string,
-  chatHistory: string = ""
-): Promise<{
-  notes: Array<{
-    id: string
-    type: 'destination' | 'budget' | 'dates' | 'activities' | 'accommodation' | 'transport' | 'general'
-    title: string
-    content: string
-    priority: 'high' | 'medium' | 'low'
-  }>
-  shouldCreateNotes: boolean
-}> {
+  chatHistory: string = ''
+): Promise<TravelNoteExtractionResult> {
   try {
     const prompt = `Analysiere die folgende User-Nachricht und erstelle strukturierte Reise-Notizen.
 
@@ -449,154 +632,19 @@ WICHTIG: Antworte NUR mit gültigem JSON, ohne Markdown-Formatierung oder zusät
       top_p: 0.9
     })
 
-    // Verbesserte JSON-Parsing-Logik
-    let parsed: any = null
-    let lastError: any = null
-
-    // 1. Direkter Parse
-    try {
-      const cleaned = response.trim()
-      if (cleaned.startsWith('{') && cleaned.endsWith('}')) {
-        parsed = JSON.parse(cleaned)
-      }
-    } catch (e) { 
-      lastError = e 
-      console.log('Direkter Parse fehlgeschlagen:', (e as Error).message)
+    const parsedResult = parseExtractionResponse(response)
+    if (parsedResult) {
+      return parsedResult
     }
 
-    // 2. Regex-Extraktion mit verbesserter Logik
-    if (!parsed) {
-      try {
-        const jsonMatch = response.match(/\{[\s\S]*\}/)
-        if (jsonMatch) {
-          const jsonString = jsonMatch[0]
-          // Entferne mögliche Markdown-Formatierung
-          const cleanedJson = jsonString
-            .replace(/```json/g, '')
-            .replace(/```/g, '')
-            .replace(/^\s*```\s*/, '')
-            .replace(/\s*```\s*$/, '')
-            .trim()
-          
-          parsed = JSON.parse(cleanedJson)
-        }
-      } catch (e) { 
-        lastError = e 
-        console.log('Regex-Extraktion fehlgeschlagen:', (e as Error).message)
-      }
+    const manualResult = extractNotesManually(userMessage)
+    if (manualResult) {
+      return manualResult
     }
-
-    // 3. Erweiterte Reparatur
-    if (!parsed) {
-      try {
-        let repaired = response
-          // Entferne Markdown-Formatierung
-          .replace(/```json/g, '')
-          .replace(/```/g, '')
-          .replace(/^\s*```\s*/, '')
-          .replace(/\s*```\s*$/, '')
-          // Repariere JSON-Syntax
-          .replace(/'/g, '"')
-          .replace(/,\s*([}\]])/g, '$1')
-          .replace(/,\s*,/g, ',')
-          .replace(/\[\s*\n/g, '[')
-          .replace(/\n\s*\]/g, ']')
-          .replace(/\,\s*\]/g, ']')
-          .replace(/\,\s*\}/g, '}')
-          // Entferne ungültige Zeichen
-          .replace(/[^\x20-\x7E]/g, '')
-        
-        const match = repaired.match(/\{[\s\S]*\}/)
-        if (match) {
-          parsed = JSON.parse(match[0])
-        }
-      } catch (e) { 
-        lastError = e 
-        console.log('Reparatur fehlgeschlagen:', (e as Error).message)
-      }
-    }
-
-    // 4. Fallback: Manuelle Extraktion
-    if (!parsed) {
-      try {
-        const notes = []
-        let shouldCreateNotes = false
-
-        // Extrahiere Informationen aus der User-Nachricht
-        const lowerMessage = userMessage.toLowerCase()
-        
-        // Reiseziele
-        const destinations = ['paris', 'london', 'rome', 'barcelona', 'amsterdam', 'berlin', 'vienna', 'prague', 'budapest', 'krakow', 'warsaw', 'stockholm', 'oslo', 'copenhagen', 'helsinki', 'athens', 'thessaloniki', 'crete', 'rhodes', 'santorini', 'mykonos', 'madrid', 'seville', 'granada', 'valencia', 'bilbao', 'ibiza', 'mallorca', 'milan', 'florence', 'venice', 'naples', 'sicily', 'tuscany', 'zurich', 'geneva', 'bern', 'lucerne', 'interlaken', 'zermatt', 'salzburg', 'innsbruck', 'hallstatt', 'vienna', 'graz', 'munich', 'hamburg', 'cologne', 'frankfurt', 'dresden', 'leipzig', 'brussels', 'antwerp', 'bruges', 'ghent', 'dublin', 'cork', 'galway', 'killarney', 'edinburgh', 'glasgow', 'inverness', 'aberdeen', 'tokyo', 'kyoto', 'osaka', 'hiroshima', 'nara', 'kanazawa', 'seoul', 'busan', 'jeju', 'bangkok', 'chiang mai', 'phuket', 'koh samui', 'singapore', 'kuala lumpur', 'penang', 'bali', 'jakarta', 'yogyakarta', 'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide', 'auckland', 'wellington', 'christchurch', 'vancouver', 'toronto', 'montreal', 'quebec', 'calgary', 'new york', 'los angeles', 'san francisco', 'chicago', 'miami', 'las vegas', 'mexico city', 'cancun', 'puerto vallarta', 'rio de janeiro', 'sao paulo', 'salvador', 'recife', 'buenos aires', 'santiago', 'lima', 'cusco', 'machu picchu', 'cairo', 'alexandria', 'luxor', 'aswan', 'marrakech', 'fes', 'casablanca', 'tangier', 'istanbul', 'ankara', 'izmir', 'antalya', 'cappadocia', 'dubai', 'abu dhabi', 'doha', 'muscat', 'mumbai', 'delhi', 'jaipur', 'agra', 'varanasi', 'goa', 'kathmandu', 'pokhara', 'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'xian', 'chengdu']
-        
-        for (const dest of destinations) {
-          if (lowerMessage.includes(dest)) {
-            notes.push({
-              id: `dest-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              type: 'destination',
-              title: `Reiseziel: ${dest.charAt(0).toUpperCase() + dest.slice(1)}`,
-              content: `Geplantes Reiseziel: ${dest.charAt(0).toUpperCase() + dest.slice(1)}`,
-              priority: 'high'
-            })
-            shouldCreateNotes = true
-            break
-          }
-        }
-
-        // Budget
-        const budgetMatch = lowerMessage.match(/(\d+)\s*€|\d+\s*euro/i)
-        if (budgetMatch) {
-          notes.push({
-            id: `budget-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: 'budget',
-            title: `Budget: ${budgetMatch[0]}`,
-            content: `Geplantes Budget: ${budgetMatch[0]}`,
-            priority: 'high'
-          })
-          shouldCreateNotes = true
-        }
-
-        // Zeiträume
-        const timeMatches = lowerMessage.match(/(\d+)\s*(tage|wochen|monate)/gi)
-        if (timeMatches) {
-          notes.push({
-            id: `time-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-            type: 'dates',
-            title: `Reisedauer: ${timeMatches[0]}`,
-            content: `Geplante Reisedauer: ${timeMatches[0]}`,
-            priority: 'medium'
-          })
-          shouldCreateNotes = true
-        }
-
-        parsed = { notes, shouldCreateNotes }
-      } catch (e) { 
-        lastError = e 
-        console.log('Manuelle Extraktion fehlgeschlagen:', (e as Error).message)
-      }
-    }
-
-    // 5. Finale Fehlerbehandlung
-    if (!parsed) {
-      console.error('JSON-Parsing komplett fehlgeschlagen:', lastError)
-      console.error('Response war:', response)
-      return {
-        notes: [],
-        shouldCreateNotes: false
-      }
-    }
-
-    // Validiere und formatiere die Notizen
-    const notes = (parsed.notes || []).map((note: any) => ({
-      id: `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      type: note.type || 'general',
-      title: note.title || 'Neue Notiz',
-      content: note.content || '',
-      priority: note.priority || 'medium'
-    }))
 
     return {
-      notes,
-      shouldCreateNotes: parsed.shouldCreateNotes || notes.length > 0
+      notes: [],
+      shouldCreateNotes: false
     }
   } catch (error) {
     console.error('Error extracting travel notes:', error)
@@ -605,4 +653,4 @@ WICHTIG: Antworte NUR mit gültigem JSON, ohne Markdown-Formatierung oder zusät
       shouldCreateNotes: false
     }
   }
-} 
+}

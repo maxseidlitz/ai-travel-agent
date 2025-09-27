@@ -2,34 +2,114 @@
 
 import React, { useState, useEffect } from 'react'
 import { MessageCircle, MapPin, Calendar, Euro, Users, Star, Edit3, Trash2, Plus, Save } from 'lucide-react'
+import type { TravelNote, TravelNoteType, TravelNotePriority } from '@/types'
 
-interface TravelNote {
+interface TravelCanvasMessage {
   id: string
-  type: 'destination' | 'budget' | 'dates' | 'activities' | 'accommodation' | 'transport' | 'general'
-  title: string
+  role: 'user' | 'assistant'
   content: string
-  priority: 'high' | 'medium' | 'low'
-  createdAt: Date
-  updatedAt: Date
+  timestamp: Date
 }
 
 interface TravelCanvasProps {
-  chatMessages: Array<{
-    id: string
-    role: 'user' | 'assistant'
-    content: string
-    timestamp: Date
-  }>
+  chatMessages: TravelCanvasMessage[]
   onSaveNotes: (notes: TravelNote[]) => void
-  autoNotes?: Array<{
-    id: string
-    type: 'destination' | 'budget' | 'dates' | 'activities' | 'accommodation' | 'transport' | 'general'
-    title: string
-    content: string
-    priority: 'high' | 'medium' | 'low'
-    createdAt: Date
-    updatedAt: Date
-  }>
+  autoNotes?: TravelNote[]
+}
+
+type NoteKeySource = Pick<TravelNote, 'type' | 'title' | 'content'>
+
+const createNoteKey = (note: NoteKeySource) =>
+  `${note.type}:${note.title.toLowerCase()}:${note.content.toLowerCase()}`
+
+const extractDestinations = (text: string): string[] => {
+  const destinations = [
+    'paris', 'london', 'rome', 'barcelona', 'amsterdam', 'berlin', 'vienna', 'prague',
+    'budapest', 'krakow', 'warsaw', 'stockholm', 'oslo', 'copenhagen', 'helsinki',
+    'athens', 'thessaloniki', 'crete', 'rhodes', 'santorini', 'mykonos',
+    'madrid', 'seville', 'granada', 'valencia', 'bilbao', 'ibiza', 'mallorca',
+    'milan', 'florence', 'venice', 'naples', 'sicily', 'tuscany',
+    'zurich', 'geneva', 'bern', 'lucerne', 'interlaken', 'zermatt',
+    'salzburg', 'innsbruck', 'hallstatt', 'vienna', 'graz',
+    'munich', 'hamburg', 'cologne', 'frankfurt', 'dresden', 'leipzig',
+    'brussels', 'antwerp', 'bruges', 'ghent',
+    'dublin', 'cork', 'galway', 'killarney',
+    'edinburgh', 'glasgow', 'inverness', 'aberdeen',
+    'tokyo', 'kyoto', 'osaka', 'hiroshima', 'nara', 'kanazawa',
+    'seoul', 'busan', 'jeju',
+    'bangkok', 'chiang mai', 'phuket', 'koh samui',
+    'singapore', 'kuala lumpur', 'penang',
+    'bali', 'jakarta', 'yogyakarta',
+    'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide',
+    'auckland', 'wellington', 'christchurch',
+    'vancouver', 'toronto', 'montreal', 'quebec', 'calgary',
+    'new york', 'los angeles', 'san francisco', 'chicago', 'miami', 'las vegas',
+    'mexico city', 'cancun', 'puerto vallarta',
+    'rio de janeiro', 'sao paulo', 'salvador', 'recife',
+    'buenos aires', 'santiago', 'lima', 'cusco', 'machu picchu',
+    'cairo', 'alexandria', 'luxor', 'aswan',
+    'marrakech', 'fes', 'casablanca', 'tangier',
+    'istanbul', 'ankara', 'izmir', 'antalya', 'cappadocia',
+    'dubai', 'abu dhabi', 'doha', 'muscat',
+    'mumbai', 'delhi', 'jaipur', 'agra', 'varanasi', 'goa',
+    'kathmandu', 'pokhara',
+    'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'xian', 'chengdu'
+  ]
+
+  return destinations.filter(dest => text.includes(dest))
+}
+
+const extractNotesFromChat = (messages: TravelCanvasMessage[]): TravelNote[] => {
+  const extracted: TravelNote[] = []
+  const allText = messages.map(m => m.content).join(' ').toLowerCase()
+
+  const destinations = extractDestinations(allText)
+  destinations.forEach(dest => {
+    const timestamp = new Date()
+    const content = `Geplantes Reiseziel: ${dest}`
+    extracted.push({
+      id: `dest-${dest}`,
+      type: 'destination',
+      title: `Reiseziel: ${dest}`,
+      content,
+      priority: 'high',
+      createdAt: timestamp,
+      updatedAt: timestamp
+    })
+  })
+
+  const budgetMatch = allText.match(/(\d+)\s*€|\d+\s*euro/i)
+  if (budgetMatch) {
+    const timestamp = new Date()
+    const content = `Geplantes Budget: ${budgetMatch[0]}`
+    extracted.push({
+      id: `budget-${budgetMatch[0].toLowerCase()}`,
+      type: 'budget',
+      title: `Budget: ${budgetMatch[0]}`,
+      content,
+      priority: 'high',
+      createdAt: timestamp,
+      updatedAt: timestamp
+    })
+  }
+
+  const timeMatches = allText.match(/(\d+)\s*(tage|wochen|monate)/gi)
+  if (timeMatches) {
+    const firstMatch = timeMatches[0]
+    const timestamp = new Date()
+    const content = `Geplante Reisedauer: ${firstMatch}`
+    extracted.push({
+      id: `time-${firstMatch.toLowerCase()}`,
+      type: 'dates',
+      title: `Reisedauer: ${firstMatch}`,
+      content,
+      priority: 'medium',
+      createdAt: timestamp,
+      updatedAt: timestamp
+    })
+  }
+
+  return extracted
 }
 
 export default function TravelCanvas({ chatMessages, onSaveNotes, autoNotes = [] }: TravelCanvasProps) {
@@ -43,10 +123,18 @@ export default function TravelCanvas({ chatMessages, onSaveNotes, autoNotes = []
 
   // Automatische Extraktion von Informationen aus Chat-Nachrichten
   useEffect(() => {
+    if (chatMessages.length === 0) {
+      return
+    }
+
     const extractedNotes = extractNotesFromChat(chatMessages)
     setNotes(prevNotes => {
-      const existingIds = new Set(prevNotes.map(note => note.id))
-      const newNotes = extractedNotes.filter(note => !existingIds.has(note.id))
+      const existingKeys = new Set(prevNotes.map(note => createNoteKey(note)))
+      const newNotes = extractedNotes.filter(note => !existingKeys.has(createNoteKey(note)))
+      if (newNotes.length === 0) {
+        return prevNotes
+      }
+
       return [...prevNotes, ...newNotes]
     })
   }, [chatMessages])
@@ -55,121 +143,47 @@ export default function TravelCanvas({ chatMessages, onSaveNotes, autoNotes = []
   useEffect(() => {
     if (autoNotes.length > 0) {
       setNotes(prevNotes => {
-        const existingIds = new Set(prevNotes.map(note => note.id))
-        const newAutoNotes = autoNotes.filter(note => !existingIds.has(note.id))
+        const existingKeys = new Set(prevNotes.map(note => createNoteKey(note)))
+        const normalizedAutoNotes = autoNotes.map(note => ({
+          ...note,
+          createdAt: note.createdAt instanceof Date ? note.createdAt : new Date(note.createdAt),
+          updatedAt: note.updatedAt instanceof Date ? note.updatedAt : new Date(note.updatedAt)
+        }))
+        const newAutoNotes = normalizedAutoNotes.filter(note => !existingKeys.has(createNoteKey(note)))
+        if (newAutoNotes.length === 0) {
+          return prevNotes
+        }
+
         return [...prevNotes, ...newAutoNotes]
       })
     }
   }, [autoNotes])
-
-  const extractNotesFromChat = (messages: any[]): TravelNote[] => {
-    const extracted: TravelNote[] = []
-    const allText = messages.map(m => m.content).join(' ').toLowerCase()
-
-    // Extrahiere Reiseziele
-    const destinations = extractDestinations(allText)
-    destinations.forEach(dest => {
-      extracted.push({
-        id: `dest-${Date.now()}-${Math.random()}`,
-        type: 'destination',
-        title: `Reiseziel: ${dest}`,
-        content: `Geplantes Reiseziel: ${dest}`,
-        priority: 'high',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-    })
-
-    // Extrahiere Budget-Informationen
-    const budgetMatch = allText.match(/(\d+)\s*€|\d+\s*euro/i)
-    if (budgetMatch) {
-      extracted.push({
-        id: `budget-${Date.now()}`,
-        type: 'budget',
-        title: `Budget: ${budgetMatch[0]}`,
-        content: `Geplantes Budget: ${budgetMatch[0]}`,
-        priority: 'high',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-    }
-
-    // Extrahiere Zeiträume
-    const timeMatches = allText.match(/(\d+)\s*(tage|wochen|monate)/gi)
-    if (timeMatches) {
-      extracted.push({
-        id: `time-${Date.now()}`,
-        type: 'dates',
-        title: `Reisedauer: ${timeMatches[0]}`,
-        content: `Geplante Reisedauer: ${timeMatches[0]}`,
-        priority: 'medium',
-        createdAt: new Date(),
-        updatedAt: new Date()
-      })
-    }
-
-    return extracted
-  }
-
-  const extractDestinations = (text: string): string[] => {
-    const destinations = [
-      'paris', 'london', 'rome', 'barcelona', 'amsterdam', 'berlin', 'vienna', 'prague',
-      'budapest', 'krakow', 'warsaw', 'stockholm', 'oslo', 'copenhagen', 'helsinki',
-      'athens', 'thessaloniki', 'crete', 'rhodes', 'santorini', 'mykonos',
-      'madrid', 'seville', 'granada', 'valencia', 'bilbao', 'ibiza', 'mallorca',
-      'milan', 'florence', 'venice', 'naples', 'sicily', 'tuscany',
-      'zurich', 'geneva', 'bern', 'lucerne', 'interlaken', 'zermatt',
-      'salzburg', 'innsbruck', 'hallstatt', 'vienna', 'graz',
-      'munich', 'hamburg', 'cologne', 'frankfurt', 'dresden', 'leipzig',
-      'brussels', 'antwerp', 'bruges', 'ghent',
-      'dublin', 'cork', 'galway', 'killarney',
-      'edinburgh', 'glasgow', 'inverness', 'aberdeen',
-      'tokyo', 'kyoto', 'osaka', 'hiroshima', 'nara', 'kanazawa',
-      'seoul', 'busan', 'jeju',
-      'bangkok', 'chiang mai', 'phuket', 'koh samui',
-      'singapore', 'kuala lumpur', 'penang',
-      'bali', 'jakarta', 'yogyakarta',
-      'sydney', 'melbourne', 'brisbane', 'perth', 'adelaide',
-      'auckland', 'wellington', 'christchurch',
-      'vancouver', 'toronto', 'montreal', 'quebec', 'calgary',
-      'new york', 'los angeles', 'san francisco', 'chicago', 'miami', 'las vegas',
-      'mexico city', 'cancun', 'puerto vallarta',
-      'rio de janeiro', 'sao paulo', 'salvador', 'recife',
-      'buenos aires', 'santiago', 'lima', 'cusco', 'machu picchu',
-      'cairo', 'alexandria', 'luxor', 'aswan',
-      'marrakech', 'fes', 'casablanca', 'tangier',
-      'istanbul', 'ankara', 'izmir', 'antalya', 'cappadocia',
-      'dubai', 'abu dhabi', 'doha', 'muscat',
-      'mumbai', 'delhi', 'jaipur', 'agra', 'varanasi', 'goa',
-      'kathmandu', 'pokhara',
-      'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'xian', 'chengdu'
-    ]
-
-    return destinations.filter(dest => text.includes(dest))
-  }
 
   const addNote = () => {
     if (!newNote.title || !newNote.content) return
 
     const note: TravelNote = {
       id: `note-${Date.now()}`,
-      type: newNote.type || 'general',
+      type: (newNote.type as TravelNoteType) || 'general',
       title: newNote.title,
       content: newNote.content,
-      priority: newNote.priority || 'medium',
+      priority: (newNote.priority as TravelNotePriority) || 'medium',
       createdAt: new Date(),
       updatedAt: new Date()
     }
 
-    setNotes(prev => [...prev, note])
+    setNotes(prev => {
+      const updatedNotes = [...prev, note]
+      onSaveNotes(updatedNotes)
+      return updatedNotes
+    })
     setNewNote({ type: 'general', priority: 'medium' })
     setShowAddForm(false)
-    onSaveNotes([...notes, note])
   }
 
   const updateNote = (id: string, updates: Partial<TravelNote>) => {
-    setNotes(prev => prev.map(note => 
-      note.id === id 
+    setNotes(prev => prev.map(note =>
+      note.id === id
         ? { ...note, ...updates, updatedAt: new Date() }
         : note
     ))
@@ -217,7 +231,7 @@ export default function TravelCanvas({ chatMessages, onSaveNotes, autoNotes = []
     if (!acc[note.type]) acc[note.type] = []
     acc[note.type].push(note)
     return acc
-  }, {} as Record<string, TravelNote[]>)
+  }, {} as Record<TravelNoteType, TravelNote[]>)
 
   return (
     <div className="bg-white rounded-lg shadow-lg p-4 h-full flex flex-col">
@@ -256,7 +270,7 @@ export default function TravelCanvas({ chatMessages, onSaveNotes, autoNotes = []
             <div className="flex gap-2">
               <select
                 value={newNote.type}
-                onChange={(e) => setNewNote(prev => ({ ...prev, type: e.target.value as any }))}
+                onChange={(e) => setNewNote(prev => ({ ...prev, type: e.target.value as TravelNoteType }))}
                 className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="general">Allgemein</option>
@@ -269,7 +283,7 @@ export default function TravelCanvas({ chatMessages, onSaveNotes, autoNotes = []
               </select>
               <select
                 value={newNote.priority}
-                onChange={(e) => setNewNote(prev => ({ ...prev, priority: e.target.value as any }))}
+                onChange={(e) => setNewNote(prev => ({ ...prev, priority: e.target.value as TravelNotePriority }))}
                 className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
               >
                 <option value="low">Niedrig</option>
@@ -355,7 +369,7 @@ export default function TravelCanvas({ chatMessages, onSaveNotes, autoNotes = []
                       <div className="flex gap-1">
                         <select
                           value={note.priority}
-                          onChange={(e) => updateNote(note.id, { priority: e.target.value as any })}
+                          onChange={(e) => updateNote(note.id, { priority: e.target.value as TravelNotePriority })}
                           className="flex-1 px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
                         >
                           <option value="low">Niedrig</option>

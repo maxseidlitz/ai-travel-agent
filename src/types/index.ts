@@ -87,6 +87,29 @@ export enum MessageRole {
   SYSTEM = 'SYSTEM'
 }
 
+export type TravelNoteType =
+  | 'destination'
+  | 'budget'
+  | 'dates'
+  | 'activities'
+  | 'accommodation'
+  | 'transport'
+  | 'general'
+
+export type TravelNotePriority = 'high' | 'medium' | 'low'
+
+export interface TravelNote {
+  id: string;
+  type: TravelNoteType;
+  title: string;
+  content: string;
+  priority: TravelNotePriority;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export type TravelNoteDraft = Omit<TravelNote, 'createdAt' | 'updatedAt'>
+
 // AI Response Types
 export interface AIResponse {
   content: string;

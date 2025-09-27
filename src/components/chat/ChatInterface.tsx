@@ -1,17 +1,17 @@
 'use client'
 
-import React, { useState, useRef, useEffect } from 'react'
+import React, { useState, useRef, useEffect, useCallback } from 'react'
 import { Send, Loader2, MessageCircle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Message, AIResponse, MessageRole } from '@/types'
+import { Message, MessageRole, TravelNoteDraft } from '@/types'
 import { cn } from '@/lib/utils'
 import { extractTravelNotes } from '@/lib/ai/ollama'
 
 interface ChatInterfaceProps {
   className?: string
-  onTripCreated?: (tripData: any) => void
-  onNotesExtracted?: (notes: any[]) => void
+  onTripCreated?: (messages: Message[]) => void
+  onNotesExtracted?: (notes: TravelNoteDraft[]) => void
 }
 
 export default function ChatInterface({ className, onTripCreated, onNotesExtracted }: ChatInterfaceProps) {
@@ -22,13 +22,21 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
   const messagesEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll to bottom
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }
+  }, [])
+
+  const appendMessage = useCallback((message: Message) => {
+    setMessages(prev => {
+      const updatedMessages = [...prev, message]
+      onTripCreated?.(updatedMessages)
+      return updatedMessages
+    })
+  }, [onTripCreated])
 
   useEffect(() => {
     scrollToBottom()
-  }, [messages])
+  }, [messages, scrollToBottom])
 
   // Initialize session
   useEffect(() => {
@@ -48,15 +56,16 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
       createdAt: new Date()
     }
 
-    setMessages(prev => [...prev, userMessage])
+    const nextMessages = [...messages, userMessage]
+    appendMessage(userMessage)
     setInput('')
     setIsLoading(true)
 
     try {
       // Extrahiere automatisch Notizen aus der User-Nachricht
-      const chatHistory = messages.map(m => `${m.role}: ${m.content}`).join('\n')
+      const chatHistory = nextMessages.map(m => `${m.role}: ${m.content}`).join('\n')
       const extractedNotes = await extractTravelNotes(input, chatHistory)
-      
+
       // Erstelle AI-Antwort
       const response = await fetch('/api/chat', {
         method: 'POST',
@@ -85,11 +94,10 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
           createdAt: new Date()
         }
 
-        setMessages(prev => [...prev, aiResponse])
+        appendMessage(aiResponse)
 
         // Sende extrahierte Notizen an Parent-Komponente
         if (extractedNotes.shouldCreateNotes && extractedNotes.notes.length > 0) {
-          console.log('Automatisch extrahierte Notizen:', extractedNotes.notes)
           onNotesExtracted?.(extractedNotes.notes)
         }
       } else {
@@ -104,7 +112,7 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
         chatSessionId: sessionId || '',
         createdAt: new Date()
       }
-      setMessages(prev => [...prev, errorMessage])
+      appendMessage(errorMessage)
     } finally {
       setIsLoading(false)
     }

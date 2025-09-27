@@ -1,9 +1,9 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import ChatInterface from './ChatInterface'
 import TravelCanvas from '../planning/TravelCanvas'
-import { Message, MessageRole } from '@/types'
+import { Message, MessageRole, TravelNote, TravelNoteDraft } from '@/types'
 
 interface ChatWithCanvasProps {
   className?: string
@@ -18,41 +18,40 @@ type CanvasMessage = {
 
 export default function ChatWithCanvas({ className }: ChatWithCanvasProps) {
   const [messages, setMessages] = useState<Message[]>([])
-  const [autoNotes, setAutoNotes] = useState<any[]>([])
+  const [autoNotes, setAutoNotes] = useState<TravelNote[]>([])
   const [showNotes, setShowNotes] = useState(false)
 
   const handleNewMessage = (newMessages: Message[]) => {
     setMessages(newMessages)
   }
 
-  const handleNotesExtracted = (extractedNotes: any[]) => {
-    console.log('Notizen von AI extrahiert:', extractedNotes)
-    
-    // Konvertiere die extrahierten Notizen in das richtige Format für TravelCanvas
-    const formattedNotes = extractedNotes.map(note => ({
-      ...note,
-      createdAt: new Date(),
-      updatedAt: new Date()
-    }))
-    
+  const handleNotesExtracted = (extractedNotes: TravelNoteDraft[]) => {
+    const formattedNotes: TravelNote[] = extractedNotes.map(note => {
+      const timestamp = new Date()
+      return {
+        ...note,
+        createdAt: timestamp,
+        updatedAt: timestamp
+      }
+    })
+
     setAutoNotes(prev => [...prev, ...formattedNotes])
   }
 
-  const handleSaveNotes = (notes: any[]) => {
-    // Hier können Sie die Notizen speichern (z.B. in localStorage oder Datenbank)
-    console.log('Notizen gespeichert:', notes)
+  const handleSaveNotes = (notes: TravelNote[]) => {
     localStorage.setItem('travelNotes', JSON.stringify(notes))
   }
 
-  // Mapping für TravelCanvas
-  const mappedMessages: CanvasMessage[] = messages
-    .filter(m => m.role === MessageRole.USER || m.role === MessageRole.ASSISTANT)
-    .map(m => ({
-      id: m.id,
-      role: m.role === MessageRole.USER ? 'user' : 'assistant',
-      content: m.content,
-      timestamp: m.createdAt
-    }))
+  const mappedMessages: CanvasMessage[] = useMemo(() => (
+    messages
+      .filter(m => m.role === MessageRole.USER || m.role === MessageRole.ASSISTANT)
+      .map(m => ({
+        id: m.id,
+        role: m.role === MessageRole.USER ? 'user' : 'assistant',
+        content: m.content,
+        timestamp: m.createdAt
+      }))
+  ), [messages])
 
   return (
     <div className={`flex flex-col lg:grid lg:grid-cols-3 gap-6 h-[600px] ${className}`}>
