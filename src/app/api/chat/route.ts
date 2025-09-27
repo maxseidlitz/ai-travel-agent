@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { generateTravelResponse } from '@/lib/ai'
-import { ChatRequest } from '@/types'
+import { ChatRequest, Message } from '@/types'
 
 export async function POST(request: NextRequest) {
   try {
@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
 
     // TODO: Get chat history from database when Prisma is set up
     // Temporär ohne Datenbank - leere Nachrichtenliste zurückgeben
-    const messages: any[] = []
+    const messages: Message[] = []
 
     return NextResponse.json({
       success: true,

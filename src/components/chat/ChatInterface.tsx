@@ -4,17 +4,17 @@ import React, { useState, useRef, useEffect } from 'react'
 import { Send, Loader2, MessageCircle } from 'lucide-react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Message, AIResponse, MessageRole } from '@/types'
+import { Message, AIResponse, MessageRole, ApiResponse } from '@/types'
 import { cn } from '@/lib/utils'
-import { extractTravelNotes } from '@/lib/ai/ollama'
+import { extractTravelNotes, TravelNote, TravelNotesResult } from '@/lib/ai/ollama'
 
 interface ChatInterfaceProps {
   className?: string
-  onTripCreated?: (tripData: any) => void
-  onNotesExtracted?: (notes: any[]) => void
+  onMessagesChange?: (messages: Message[]) => void
+  onNotesExtracted?: (notes: TravelNote[]) => void
 }
 
-export default function ChatInterface({ className, onTripCreated, onNotesExtracted }: ChatInterfaceProps) {
+export default function ChatInterface({ className, onMessagesChange, onNotesExtracted }: ChatInterfaceProps) {
   const [messages, setMessages] = useState<Message[]>([])
   const [input, setInput] = useState('')
   const [isLoading, setIsLoading] = useState(false)
@@ -29,6 +29,10 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
   useEffect(() => {
     scrollToBottom()
   }, [messages])
+
+  useEffect(() => {
+    onMessagesChange?.(messages)
+  }, [messages, onMessagesChange])
 
   // Initialize session
   useEffect(() => {
@@ -55,7 +59,7 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
     try {
       // Extrahiere automatisch Notizen aus der User-Nachricht
       const chatHistory = messages.map(m => `${m.role}: ${m.content}`).join('\n')
-      const extractedNotes = await extractTravelNotes(input, chatHistory)
+      const extractedNotes: TravelNotesResult = await extractTravelNotes(input, chatHistory)
       
       // Erstelle AI-Antwort
       const response = await fetch('/api/chat', {
@@ -74,7 +78,7 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
         }),
       })
 
-      const result = await response.json()
+      const result = await response.json() as ApiResponse<AIResponse>
 
       if (result.success && result.data) {
         const aiResponse: Message = {
@@ -176,7 +180,10 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
               )}
             >
               {message.role === MessageRole.ASSISTANT ? (
-                <div className="prose prose-sm prose-gray max-w-none">
+                <div
+                  className="prose prose-sm prose-gray max-w-full break-words whitespace-pre-wrap"
+                  style={{ overflowWrap: 'anywhere', wordBreak: 'break-word' }}
+                >
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -220,7 +227,9 @@ export default function ChatInterface({ className, onTripCreated, onNotesExtract
                   </ReactMarkdown>
                 </div>
               ) : (
-                <p className="text-sm whitespace-pre-wrap">{message.content}</p>
+                <p className="text-sm whitespace-pre-wrap break-words" style={{ overflowWrap: 'anywhere' }}>
+                  {message.content}
+                </p>
               )}
             </div>
           </div>
