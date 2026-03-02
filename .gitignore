@@ -244,4 +244,3 @@ src/generated/
 **/public/worker-*.js.map
 
 # Local development scripts
-scripts/start-dev.sh
