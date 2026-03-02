@@ -6,7 +6,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { Message, AIResponse, MessageRole, ApiResponse } from '@/types'
 import { cn } from '@/lib/utils'
-import { extractTravelNotes, TravelNote, TravelNotesResult } from '@/lib/ai/ollama'
+import type { TravelNote, TravelNotesResult } from '@/lib/ai/ollama'
 
 interface ChatInterfaceProps {
   className?: string
@@ -57,9 +57,17 @@ export default function ChatInterface({ className, onMessagesChange, onNotesExtr
     setIsLoading(true)
 
     try {
-      // Extrahiere automatisch Notizen aus der User-Nachricht
+      // Extrahiere automatisch Notizen aus der User-Nachricht via API
       const chatHistory = messages.map(m => `${m.role}: ${m.content}`).join('\n')
-      const extractedNotes: TravelNotesResult = await extractTravelNotes(input, chatHistory)
+      const notesResponse = await fetch('/api/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ message: input, chatHistory }),
+      })
+      const notesResult = await notesResponse.json() as ApiResponse<TravelNotesResult>
+      const extractedNotes: TravelNotesResult = notesResult.success && notesResult.data
+        ? notesResult.data
+        : { notes: [], shouldCreateNotes: false }
       
       // Erstelle AI-Antwort
       const response = await fetch('/api/chat', {
@@ -256,7 +264,7 @@ export default function ChatInterface({ className, onMessagesChange, onNotesExtr
             type="text"
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyPress={handleKeyPress}
+            onKeyDown={handleKeyPress}
             placeholder="Erzählen Sie mir von Ihren Reiseplänen..."
             className="flex-1 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-900 placeholder-gray-500"
             disabled={isLoading}

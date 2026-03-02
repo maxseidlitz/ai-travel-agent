@@ -23,9 +23,10 @@ Ein intelligenter Reiseberater, der vollständig lokal mit Ollama betrieben wird
 11. [Qualitätssicherung](#-qualitätssicherung)
 12. [Deployment](#-deployment)
 13. [Troubleshooting & FAQ](#-troubleshooting--faq)
-14. [Roadmap](#-roadmap)
-15. [Beitragen](#-beitragen)
-16. [Lizenz & Support](#-lizenz--support)
+14. [Fehlerbehebung](#-fehlerbehebung)
+15. [Roadmap](#-roadmap)
+16. [Beitragen](#-beitragen)
+17. [Lizenz & Support](#-lizenz--support)
 
 ---
 
@@ -374,6 +375,25 @@ services:
 - *Kann ich OpenAI oder andere APIs anbinden?* – Ja, über zusätzliche Provider im `src/lib/ai/` Modul.
 - *Wie schalte ich Dark Mode ein?* – Derzeit geplant, aber via Tailwind `dark:` Utilities vorbereitbar.
 - *Ist Mehrsprachigkeit vorgesehen?* – UI ist modular; i18n kann via `next-intl` ergänzt werden.
+
+---
+
+## 🔧 Fehlerbehebung
+
+Die folgenden Fehler wurden im Code identifiziert und behoben:
+
+| # | Datei | Fehler | Behebung |
+|---|-------|--------|----------|
+| 1 | `src/lib/utils/index.ts` | TypeScript-Fehler: `pick<T>` fehlte die `extends object`-Einschränkung, wodurch `key in obj` einen Kompilierfehler verursachte | Typ-Parameter auf `T extends object` geändert |
+| 2 | `src/components/chat/ChatInterface.tsx` | `extractTravelNotes` wurde direkt aus einer Client-Komponente aufgerufen. Diese Funktion nutzt `process.env`-Variablen (serverseitig) und macht direkte Ollama-API-Aufrufe, die im Browser fehlschlagen (CORS, fehlende Umgebungsvariablen) | Neue API-Route `/api/notes` erstellt und den Aufruf über `fetch('/api/notes')` vom Client durchgeführt |
+| 3 | `src/components/chat/ChatInterface.tsx` | Veraltetes `onKeyPress`-Event (deprecated in React) | Ersetzt durch `onKeyDown` |
+| 4 | `scripts/start-dev.sh` | Skript wird in `package.json` (`npm run dev`) referenziert, war aber in `.gitignore` eingetragen und fehlte im Repository | `.gitignore`-Eintrag entfernt und `start-dev.sh` erstellt |
+
+### Offene Fragen
+
+- **Datenbank-Integration:** Die Chat-API (`/api/chat`) enthält TODOs für die Persistierung von Nachrichten in der Datenbank. Soll die Prisma-Integration für `ChatSession` und `Message` aktiviert werden, und ist eine PostgreSQL-Instanz in der Entwicklungsumgebung verfügbar?
+- **Authentifizierung:** NextAuth ist als Dependency eingerichtet, aber es fehlt eine `[...nextauth]`-Route. Soll NextAuth für die Benutzer-Authentifizierung konfiguriert werden, und welche Provider (z. B. GitHub, Google, Credentials) sollen unterstützt werden?
+- **Ollama vs. OpenAI:** Das Projekt enthält sowohl Ollama- als auch OpenAI-Abhängigkeiten. Soll ein automatischer Fallback von Ollama auf OpenAI implementiert werden, oder wird ausschließlich Ollama genutzt?
 
 ---
 
