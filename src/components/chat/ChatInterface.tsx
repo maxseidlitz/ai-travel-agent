@@ -65,7 +65,7 @@ export default function ChatInterface({ className, onMessagesChange, onNotesExtr
         body: JSON.stringify({ message: input, chatHistory }),
       })
       const notesResult = await notesResponse.json() as ApiResponse<TravelNotesResult>
-      const extractedNotes: TravelNotesResult = notesResult.success && notesResult.data
+      const extractedNotes: TravelNotesResult = notesResult.success && notesResult.data != null
         ? notesResult.data
         : { notes: [], shouldCreateNotes: false }
       
